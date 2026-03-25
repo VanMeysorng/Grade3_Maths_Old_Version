@@ -96,6 +96,7 @@ let globalStreak = 0;
 let totalPossible = 0;
 let currentUnlockedIndex = 0;
 let currentSelectedTopic = null;
+let confettiAnimationId = null;
 
 // Initialize game
 function initGame() {
@@ -128,13 +129,12 @@ function updateUIStats() {
     document.getElementById('totalScoreSpan').innerText = totalCorrectOverall;
     document.getElementById('slainCount').innerText = defeatedCount;
     document.getElementById('streakGlobal').innerText = globalStreak;
-    
-    // Update unlocked index based on defeated bosses
     currentUnlockedIndex = defeatedCount;
 }
 
 function renderDashboard() {
     const container = document.getElementById('topicsDashboard');
+    if (!container) return;
     container.innerHTML = '';
     
     for (let i = 0; i < TOPIC_ORDER.length; i++) {
@@ -148,10 +148,7 @@ function renderDashboard() {
         
         const card = document.createElement('div');
         card.className = `topic-card ${!isUnlocked ? 'locked' : ''}`;
-        if (isUnlocked && !isDefeated) {
-            card.style.cursor = 'pointer';
-            card.onclick = () => openBossBattle(tid);
-        } else if (isDefeated) {
+        if (isUnlocked) {
             card.style.cursor = 'pointer';
             card.onclick = () => openBossBattle(tid);
         }
@@ -191,22 +188,140 @@ function openBossBattle(topicId) {
     
     currentSelectedTopic = topicId;
     const boss = BOSS_DATA[topicId];
-    document.getElementById('arenaBossName').innerHTML = `<i class="${boss.icon}"></i> ${boss.name}`;
-    document.getElementById('activeArena').classList.remove('hidden');
+    const arenaNameSpan = document.getElementById('arenaBossName');
+    if (arenaNameSpan) {
+        arenaNameSpan.innerHTML = `<i class="${boss.icon}"></i> ${boss.name}`;
+    }
+    const activeArena = document.getElementById('activeArena');
+    if (activeArena) {
+        activeArena.classList.remove('hidden');
+    }
     renderBattleArena();
 }
 
 function closeArena() {
-    document.getElementById('activeArena').classList.add('hidden');
+    const activeArena = document.getElementById('activeArena');
+    if (activeArena) {
+        activeArena.classList.add('hidden');
+    }
     currentSelectedTopic = null;
     renderDashboard();
     updateUIStats();
+}
+
+function triggerConfettiBlast() {
+    if (confettiAnimationId) {
+        cancelAnimationFrame(confettiAnimationId);
+    }
+    
+    const canvas = document.getElementById('confettiEpic');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    
+    let particles = [];
+    for (let i = 0; i < 200; i++) {
+        particles.push({
+            x: Math.random() * canvas.width,
+            y: Math.random() * canvas.height - canvas.height,
+            size: Math.random() * 8 + 3,
+            speedY: Math.random() * 8 + 4,
+            speedX: (Math.random() - 0.5) * 5,
+            color: `hsl(${Math.random() * 360}, 80%, 60%)`,
+            rotation: Math.random() * 360,
+            rotationSpeed: (Math.random() - 0.5) * 10
+        });
+    }
+    
+    let startTime = Date.now();
+    const duration = 2000;
+    
+    function draw() {
+        const elapsed = Date.now() - startTime;
+        if (elapsed >= duration) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            confettiAnimationId = null;
+            return;
+        }
+        
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        for (let p of particles) {
+            p.y += p.speedY;
+            p.x += p.speedX;
+            p.rotation += p.rotationSpeed;
+            
+            ctx.save();
+            ctx.translate(p.x, p.y);
+            ctx.rotate(p.rotation * Math.PI / 180);
+            ctx.fillStyle = p.color;
+            ctx.fillRect(-p.size/2, -p.size/2, p.size, p.size);
+            ctx.restore();
+        }
+        
+        confettiAnimationId = requestAnimationFrame(draw);
+    }
+    
+    draw();
+}
+
+function handleBattleAnswer(topicId, selected, isCorrect) {
+    const state = bossStates[topicId];
+    const currentQ = state.answers[state.currentIdx];
+    if (currentQ.answered) return;
+    
+    currentQ.answered = true;
+    currentQ.correct = isCorrect;
+    
+    if (isCorrect) {
+        globalStreak++;
+        updateUIStats();
+        triggerConfettiBlast();
+        
+        // Auto-advance after correct answer
+        setTimeout(() => {
+            if (state.currentIdx + 1 <= state.answers.length) {
+                nextBattleQuestion(topicId);
+            }
+        }, 1200);
+    } else {
+        globalStreak = 0;
+        updateUIStats();
+        
+        // Auto-advance after wrong answer
+        setTimeout(() => {
+            if (state.currentIdx + 1 <= state.answers.length) {
+                nextBattleQuestion(topicId);
+            }
+        }, 1200);
+    }
+    
+    renderBattleArena();
+    updateUIStats();
+    renderDashboard();
+}
+
+function nextBattleQuestion(topicId) {
+    const state = bossStates[topicId];
+    if (!state.answers[state.currentIdx].answered) return;
+    
+    if (state.currentIdx + 1 < state.answers.length) {
+        state.currentIdx++;
+        renderBattleArena();
+    } else {
+        renderBattleArena();
+        updateUIStats();
+        renderDashboard();
+    }
 }
 
 function renderBattleArena() {
     if (!currentSelectedTopic) return;
     
     const arenaDiv = document.getElementById('dynamicArena');
+    if (!arenaDiv) return;
+    
     const topicId = currentSelectedTopic;
     const boss = BOSS_DATA[topicId];
     const state = bossStates[topicId];
@@ -239,7 +354,8 @@ function renderBattleArena() {
                 </div>
             </div>
         `;
-        document.getElementById('closeVictoryBtn')?.addEventListener('click', closeArena);
+        const closeBtn = document.getElementById('closeVictoryBtn');
+        if (closeBtn) closeBtn.addEventListener('click', closeArena);
         return;
     }
     
@@ -248,7 +364,6 @@ function renderBattleArena() {
     const answeredCount = state.answers.filter(a => a.answered).length;
     const progressPercent = (answeredCount / totalQs) * 100;
     
-    // Reset feedback for unanswered questions
     let feedbackHtml = `<i class="fas fa-info-circle"></i> Choose your attack!`;
     let feedbackClass = '';
     
@@ -276,7 +391,6 @@ function renderBattleArena() {
                         ${q.options.map(opt => `<button class="option-btn" data-opt="${opt.replace(/"/g, '&quot;')}"><i class="fas fa-bolt"></i> ${opt}</button>`).join('')}
                     </div>
                     <div class="feedback-area ${feedbackClass}">${feedbackHtml}</div>
-                    ${current.answered ? `<button class="next-move" id="nextBossBtn"><i class="fas fa-forward"></i> NEXT CHALLENGE →</button>` : ''}
                     <div class="streak-badge"><i class="fas fa-fire"></i> STREAK: ${globalStreak}x &nbsp;|&nbsp; <i class="fas fa-chart-simple"></i> Progress: ${answeredCount}/${totalQs}</div>
                 </div>
             </div>
@@ -293,85 +407,6 @@ function renderBattleArena() {
             });
         });
     }
-    
-    const nextBtn = document.getElementById('nextBossBtn');
-    if (nextBtn) {
-        // Remove any existing event listeners by cloning and replacing
-        const newNextBtn = nextBtn.cloneNode(true);
-        nextBtn.parentNode.replaceChild(newNextBtn, nextBtn);
-        newNextBtn.addEventListener('click', () => nextBattleQuestion(topicId));
-    }
-}
-
-function handleBattleAnswer(topicId, selected, isCorrect) {
-    const state = bossStates[topicId];
-    const currentQ = state.answers[state.currentIdx];
-    if (currentQ.answered) return;
-    
-    currentQ.answered = true;
-    currentQ.correct = isCorrect;
-    
-    if (isCorrect) {
-        globalStreak++;
-        updateUIStats();
-        triggerConfettiBlast();
-    } else {
-        globalStreak = 0;
-        updateUIStats();
-    }
-    
-    renderBattleArena();
-    updateUIStats();
-    renderDashboard();
-}
-
-function nextBattleQuestion(topicId) {
-    const state = bossStates[topicId];
-    if (!state.answers[state.currentIdx].answered) return;
-    
-    if (state.currentIdx + 1 < state.answers.length) {
-        state.currentIdx++;
-        renderBattleArena();
-    } else {
-        // Boss completed
-        renderBattleArena();
-        updateUIStats();
-        renderDashboard();
-    }
-}
-
-function triggerConfettiBlast() {
-    const canvas = document.getElementById('confettiEpic');
-    const ctx = canvas.getContext('2d');
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
-    let particles = [];
-    for (let i = 0; i < 180; i++) {
-        particles.push({
-            x: Math.random() * canvas.width,
-            y: Math.random() * canvas.height - canvas.height,
-            size: Math.random() * 7 + 3,
-            speedY: Math.random() * 8 + 5,
-            speedX: (Math.random() - 0.5) * 5,
-            color: `hsl(${Math.random() * 360}, 80%, 60%)`
-        });
-    }
-    let anim;
-    function draw() {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        let active = false;
-        for (let p of particles) {
-            p.y += p.speedY;
-            p.x += p.speedX;
-            if (p.y < canvas.height) active = true;
-            ctx.fillStyle = p.color;
-            ctx.fillRect(p.x, p.y, p.size, p.size);
-        }
-        if (active) anim = requestAnimationFrame(draw);
-        else cancelAnimationFrame(anim);
-    }
-    draw();
-    setTimeout(() => cancelAnimationFrame(anim), 1800);
 }
 
 // Theme management
@@ -379,7 +414,6 @@ function loadTheme() {
     const savedTheme = localStorage.getItem('mathQuestTheme') || 'dark-boy';
     document.body.setAttribute('data-theme', savedTheme);
     
-    // Set active class on the corresponding theme button
     document.querySelectorAll('.theme-btn').forEach(btn => {
         if (btn.getAttribute('data-theme') === savedTheme) {
             btn.classList.add('active');
@@ -392,7 +426,8 @@ function loadTheme() {
 function applyTheme(theme) {
     document.body.setAttribute('data-theme', theme);
     localStorage.setItem('mathQuestTheme', theme);
-    document.getElementById('themeModal').classList.remove('show');
+    const modal = document.getElementById('themeModal');
+    if (modal) modal.classList.remove('show');
 }
 
 // PDF Report
@@ -401,10 +436,10 @@ function generateThemedReport() {
     let slain = parseInt(document.getElementById('slainCount').innerText);
     let reportDiv = document.createElement('div');
     const currentTheme = document.body.getAttribute('data-theme');
-    reportDiv.style.background = currentTheme.includes('light') ? '#f9f9ff' : '#1e293b';
+    reportDiv.style.background = currentTheme && currentTheme.includes('light') ? '#f9f9ff' : '#1e293b';
     reportDiv.style.padding = "25px";
     reportDiv.style.borderRadius = "30px";
-    reportDiv.style.color = currentTheme.includes('light') ? '#1e293b' : '#ffecb3';
+    reportDiv.style.color = currentTheme && currentTheme.includes('light') ? '#1e293b' : '#ffecb3';
     reportDiv.style.fontFamily = "'Inter', sans-serif";
     reportDiv.style.border = "2px solid #ffaa44";
     reportDiv.innerHTML = `
@@ -422,24 +457,43 @@ function generateThemedReport() {
 }
 
 // Event Listeners
-document.getElementById('reportPdfBtn').addEventListener('click', generateThemedReport);
-document.getElementById('closeArenaBtn').addEventListener('click', closeArena);
-document.getElementById('openThemeModal').addEventListener('click', () => {
-    document.getElementById('themeModal').classList.add('show');
-});
-document.querySelector('.close-modal').addEventListener('click', () => {
-    document.getElementById('themeModal').classList.remove('show');
-});
-document.getElementById('applyThemeBtn').addEventListener('click', () => {
-    const selected = document.querySelector('.theme-btn.active')?.dataset.theme || 'dark-boy';
-    applyTheme(selected);
-});
-document.querySelectorAll('.theme-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-        document.querySelectorAll('.theme-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
+document.addEventListener('DOMContentLoaded', () => {
+    const reportBtn = document.getElementById('reportPdfBtn');
+    if (reportBtn) reportBtn.addEventListener('click', generateThemedReport);
+    
+    const closeBtn = document.getElementById('closeArenaBtn');
+    if (closeBtn) closeBtn.addEventListener('click', closeArena);
+    
+    const openThemeBtn = document.getElementById('openThemeModal');
+    if (openThemeBtn) {
+        openThemeBtn.addEventListener('click', () => {
+            const modal = document.getElementById('themeModal');
+            if (modal) modal.classList.add('show');
+        });
+    }
+    
+    const closeModal = document.querySelector('.close-modal');
+    if (closeModal) {
+        closeModal.addEventListener('click', () => {
+            const modal = document.getElementById('themeModal');
+            if (modal) modal.classList.remove('show');
+        });
+    }
+    
+    const applyBtn = document.getElementById('applyThemeBtn');
+    if (applyBtn) {
+        applyBtn.addEventListener('click', () => {
+            const selected = document.querySelector('.theme-btn.active')?.dataset.theme || 'dark-boy';
+            applyTheme(selected);
+        });
+    }
+    
+    document.querySelectorAll('.theme-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.theme-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+        });
     });
+    
+    initGame();
 });
-
-// Start the game
-initGame();
