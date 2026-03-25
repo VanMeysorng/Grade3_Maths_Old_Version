@@ -217,17 +217,23 @@ function renderBattleArena() {
     const allAnsweredAndCorrect = state.answers.every(a => a.answered && a.correct);
     
     if (allAnsweredAndCorrect) {
+        const isFinalBoss = TOPIC_ORDER[TOPIC_ORDER.length - 1] === topicId;
+        const allBossesDefeated = currentUnlockedIndex === TOPIC_ORDER.length;
+        
         arenaDiv.innerHTML = `
             <div class="boss-arena">
-                <div class="boss-gate" style="background: #2b6e3c;">
+                <div class="boss-gate" style="background: ${isFinalBoss && allBossesDefeated ? 'linear-gradient(95deg, #f59e0b, #ffd700)' : '#2b6e3c'};">
                     <div class="boss-name"><i class="${boss.icon}"></i><h2>${boss.name} — DEFEATED!</h2></div>
                     <div class="boss-hp-status"><i class="fas fa-check-circle"></i> VICTORY!</div>
                 </div>
                 <div class="boss-core">
-                    <div class="completed-badge">
-                        <i class="fas fa-trophy" style="font-size: 3rem;"></i>
-                        <h2>BOSS DEFEATED!</h2>
+                    <div class="${isFinalBoss && allBossesDefeated ? 'final-victory' : 'completed-badge'}">
+                        <i class="fas fa-trophy trophy-gold"></i>
+                        <h2>${isFinalBoss && allBossesDefeated ? '🏆 LEGENDARY VICTORY! 🏆' : 'BOSS DEFEATED!'}</h2>
                         <p>Score: ${correctCount}/${totalQs}</p>
+                        ${isFinalBoss && allBossesDefeated ? 
+                            '<p><i class="fas fa-crown"></i> You are the Math Champion! <i class="fas fa-crown"></i></p>' : 
+                            '<p><i class="fas fa-star"></i> Great job, warrior! <i class="fas fa-star"></i></p>'}
                         <button class="next-move" id="closeVictoryBtn"><i class="fas fa-arrow-left"></i> Return to Dashboard</button>
                     </div>
                 </div>
@@ -242,8 +248,10 @@ function renderBattleArena() {
     const answeredCount = state.answers.filter(a => a.answered).length;
     const progressPercent = (answeredCount / totalQs) * 100;
     
+    // Reset feedback for unanswered questions
     let feedbackHtml = `<i class="fas fa-info-circle"></i> Choose your attack!`;
     let feedbackClass = '';
+    
     if (current.answered) {
         if (current.correct) {
             feedbackHtml = `<i class="fas fa-check-circle"></i> CRITICAL HIT! +1 point. Streak: ${globalStreak}x`;
@@ -285,8 +293,14 @@ function renderBattleArena() {
             });
         });
     }
+    
     const nextBtn = document.getElementById('nextBossBtn');
-    if (nextBtn) nextBtn.addEventListener('click', () => nextBattleQuestion(topicId));
+    if (nextBtn) {
+        // Remove any existing event listeners by cloning and replacing
+        const newNextBtn = nextBtn.cloneNode(true);
+        nextBtn.parentNode.replaceChild(newNextBtn, nextBtn);
+        newNextBtn.addEventListener('click', () => nextBattleQuestion(topicId));
+    }
 }
 
 function handleBattleAnswer(topicId, selected, isCorrect) {
@@ -364,6 +378,15 @@ function triggerConfettiBlast() {
 function loadTheme() {
     const savedTheme = localStorage.getItem('mathQuestTheme') || 'dark-boy';
     document.body.setAttribute('data-theme', savedTheme);
+    
+    // Set active class on the corresponding theme button
+    document.querySelectorAll('.theme-btn').forEach(btn => {
+        if (btn.getAttribute('data-theme') === savedTheme) {
+            btn.classList.add('active');
+        } else {
+            btn.classList.remove('active');
+        }
+    });
 }
 
 function applyTheme(theme) {
@@ -417,8 +440,6 @@ document.querySelectorAll('.theme-btn').forEach(btn => {
         btn.classList.add('active');
     });
 });
-// Set default active theme
-document.querySelector('.theme-btn[data-theme="dark-boy"]')?.classList.add('active');
 
 // Start the game
 initGame();
